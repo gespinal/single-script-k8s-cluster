@@ -25,6 +25,10 @@ if [[ ! -f /usr/local/bin/kind ]]; then
   sudo mv ./kind /usr/local/bin/
 fi
 
+# Set cluster to never auto-start
+echo "**** Update restart policy"
+docker update --restart=no kind-control-plane
+
 echo "**** Create registry unless it exists"
 reg_name='kind-registry'
 reg_port='5001'
