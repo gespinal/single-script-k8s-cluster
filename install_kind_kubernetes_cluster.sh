@@ -9,25 +9,47 @@ kind delete cluster 2> /dev/null
 echo "**** Exporting system variables"
 export CLUSTER_NAME=kind
 
-echo "**** Setting sysconfig"
-sudo sysctl -w net.netfilter.nf_conntrack_max=131072
-
-# Install kubectl
-sudo curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl 2> /dev/null && sudo chmod +x /usr/local/bin/kubectl
-
-# Install the latest version of KinD
-if [[ ! -f /usr/local/bin/kind ]]; then
-  echo "**** Installing KinD"
-  curl -Lo ./kind https://github.com/kubernetes-sigs/kind/releases/download/v0.12.0/kind-linux-amd64
-  # Make the binary executable
-  chmod +x ./kind
-  # Move the binary to your executable path
-  sudo mv ./kind /usr/local/bin/
+# Installation
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  echo "**** Setting sysconfig for linux system"
+  sudo sysctl -w net.netfilter.nf_conntrack_max=131072
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  echo "**** Proceeding with macOS setup"
+else
+  echo "**** Configuration for this OS is not available" 
+  exit 0;
 fi
 
-# Set cluster to never auto-start
-echo "**** Update restart policy"
-docker update --restart=no kind-control-plane
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  if ! command -v brew &> /dev/null; then
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+  fi
+fi
+
+# Install kubectl
+if ! command -v kind &> /dev/null; then
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    sudo curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl 2> /dev/null && sudo chmod +x /usr/local/bin/kubectl
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    brew install kubernetes-cli
+  fi
+fi
+
+# Install the latest version of KinD
+echo "**** Installing KinD"
+if ! command -v kind &> /dev/null; then
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    curl -Lo ./kind https://github.com/kubernetes-sigs/kind/releases/download/v0.12.0/kind-linux-amd64 -o /usr/local/bin/kubectl 2> /dev/null && sudo chmod +x /usr/local/bin/kubectl
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    if ! command -v go &> /dev/null; then
+      brew update && brew install go
+      mkdir $HOME/go
+      echo export GOPATH=$HOME/go | tee -a $HOME/.zshrc > /dev/null
+      echo export PATH=$PATH:$HOME/go/bin | tee -a $HOME/.zshrc > /dev/null
+    fi
+    brew install kind
+  fi
+fi
 
 echo "**** Create registry unless it exists"
 reg_name='kind-registry'
@@ -63,6 +85,10 @@ containerdConfigPatches:
     endpoint = ["http://${reg_name}:5000"]
 EOF
 
+# Set cluster to never auto-start
+echo "**** Update restart policy"
+docker update --restart=no kind-control-plane
+
 echo "**** Check nodes"
 kubectl get nodes
 
@@ -95,6 +121,20 @@ kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
   --timeout=300s
+
+echo "**** Clonning certificate repo"
+git clone git@github.com:gespinal/ssl-wildcard-certificate-self-ca.git
+
+echo "**** Creating certificate for example.com domain"
+cd ssl-wildcard-certificate-self-ca
+./create_certificate.sh example.com
+cd ../
+
+echo "**** Create certificate secret"
+kubectl delete secret example 2>/dev/null
+kubectl create secret generic example \
+  --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/example.com-CERT.pem \
+  --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/example.com.key
   
 echo "**** Test registry"
 docker pull docker.io/nginxdemos/hello:plain-text
@@ -136,6 +176,10 @@ spec:
                 name: hello 
                 port:
                   number: 80
+  tls:
+  - hosts:
+    - hello.example.com
+    secretName: example
 EOF
 
 # Waiting
@@ -214,5 +258,7 @@ else
    sudo sh -c "echo '127.0.0.1 hello.example.com dashboard.example.com' >> /etc/hosts"
 fi
 
-echo "**** Get token for kubernetes-dashboard"
-kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin | awk '{print $1}')
+# echo "**** Get token for kubernetes-dashboard"
+# kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin | awk '{print $1}')
+
+echo "**** Kind k8s cluster created."

@@ -40,4 +40,4 @@ nodes:
 
 ### Certificate validation
 
-If you want to get rid of the `certificate not trusted` issue for your ingresses, please take a look at this repo: https://github.com/gespinal/ssl-wildcard-certificate-self-ca.
+In order to get rid of the `certificate not trusted` issue for your ingress and test URLs, this artifact is using https://github.com/gespinal/ssl-wildcard-certificate-self-ca to generate and install a certiciate for the domain `example.com`.
