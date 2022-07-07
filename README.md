@@ -1,4 +1,4 @@
-## Single Script Kubernetes Kind Cluster -- Running On Docker
+## Single script kind Kubernetes cluster -- Running on Docker
 
 Just run `./install_kind_kubernetes_cluster.sh` and the script will create a single node k8s cluster for your local tests.
 
@@ -12,8 +12,8 @@ Can easily be modified to run as a multi-node cluster.
 
 ### What does this create:
 
-- A single node kind k8s cluster running on docker containers
-- An insecure docker registry running on `http://localhost:5001`
+- Single node kind k8s cluster running on docker containers
+- Insecure docker registry running on `http://localhost:5001`
 - Dashboard running on `https://dashboard.example.com`
 - Hello world deployment running on `https://hello.example.com`
 
@@ -40,4 +40,4 @@ nodes:
 
 ### Certificate validation
 
-In order to get rid of the `certificate not trusted` issue for your ingress and test URLs, this artifact is using https://github.com/gespinal/ssl-wildcard-certificate-self-ca to generate and install a certiciate for the domain `example.com`.
+In order to get rid of the `certificate not trusted` error for your ingress and test URLs, this artifact is using https://github.com/gespinal/ssl-wildcard-certificate-self-ca to generate and install a wildcard certificate for the domain `*.example.com`.

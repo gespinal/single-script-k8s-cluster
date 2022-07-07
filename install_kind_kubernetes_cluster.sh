@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Kind K8s Cluster
+# kind K8s Cluster
 
-echo "**** Deleting old cluster"
+echo "**** Deleting old cluster, if it already exists"
 kind delete cluster 2> /dev/null
 
 # Setting variables
-echo "**** Exporting system variables"
+echo "**** Exporting CLUSTER_NAME=kind"
 export CLUSTER_NAME=kind
 
 # Installation
@@ -35,11 +35,11 @@ if ! command -v kind &> /dev/null; then
   fi
 fi
 
-# Install the latest version of KinD
-echo "**** Installing KinD"
+# Install the latest version of kind
+echo "**** Installing kind Kubernetes"
 if ! command -v kind &> /dev/null; then
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    curl -Lo ./kind https://github.com/kubernetes-sigs/kind/releases/download/v0.12.0/kind-linux-amd64 -o /usr/local/bin/kubectl 2> /dev/null && sudo chmod +x /usr/local/bin/kubectl
+    sudo curl -L https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 -o /usr/local/bin/kind 2> /dev/null && sudo chmod +x /usr/local/bin/kind
   elif [[ "$OSTYPE" == "darwin"* ]]; then
     if ! command -v go &> /dev/null; then
       brew update && brew install go
@@ -51,7 +51,7 @@ if ! command -v kind &> /dev/null; then
   fi
 fi
 
-echo "**** Create registry unless it exists"
+echo "**** Create docker insecure registry"
 reg_name='kind-registry'
 reg_port='5001'
 if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != 'true' ]; then
@@ -60,8 +60,8 @@ if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true
     registry:2
 fi
 
-echo "**** Creating new KinD cluster"
-kind create cluster --name ${CLUSTER_NAME} --config - << EOF
+echo "**** Creating new kind cluster"
+kind create cluster --retain -v 1 --name ${CLUSTER_NAME} --config - << EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -113,7 +113,7 @@ EOF
 echo "**** Install nginx ingress controller"
 kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
 
-echo "**** Wait"
+echo "**** Wait 20 secs"
 sleep 20
 
 echo "**** Wait for ingress controller to be ready"
@@ -183,7 +183,7 @@ spec:
 EOF
 
 # Waiting
-echo "**** Wait"
+echo "**** Wait 20 secs"
 sleep 20
 
 echo "**** Get Ingress IP from host"
@@ -252,8 +252,9 @@ spec:
                   number: 443
 EOF
 
+echo "**** Adding hello.example.com and dashboard.example.com to /etc/hosts"
 if grep -q "dashboard.example.com" /etc/hosts; then
-    echo "dashboard.example.com entry already exists"
+    echo "Host entries already exists on /etc/hosts"
 else
    sudo sh -c "echo '127.0.0.1 hello.example.com dashboard.example.com' >> /etc/hosts"
 fi
@@ -261,4 +262,6 @@ fi
 # echo "**** Get token for kubernetes-dashboard"
 # kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin | awk '{print $1}')
 
-echo "**** Kind k8s cluster created."
+echo "**** Kind k8s cluster created"
+echo ""
+echo "  kubectl cluster-info --context kind-kind"
