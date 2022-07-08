@@ -41,3 +41,11 @@ nodes:
 ### Certificate validation
 
 In order to get rid of the `certificate not trusted` error for your ingress and test URLs, this artifact is using https://github.com/gespinal/ssl-wildcard-certificate-self-ca to generate and install a wildcard certificate for the domain `*.example.com`.
+
+I recommend using Edge or Safari to test certificate. Firefox gives some trouble with CACHE and cert validation when re-created. Haven't tested this on Chrome.
+
+In case of Firefox:
+
+Go to: about:config
+
+Set: security.enterprise_roots.enabled to true

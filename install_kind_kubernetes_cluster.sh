@@ -89,8 +89,11 @@ EOF
 echo "**** Update restart policy"
 docker update --restart=no kind-control-plane
 
-echo "**** Check nodes"
-kubectl get nodes
+echo "**** Wait for control-plane node to be ready"
+kubectl wait \
+  --for=condition=ready node \
+  --selector=kubernetes.io/hostname=kind-control-plane \
+  --timeout=300s
 
 echo "**** Connect to registry"
 if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
@@ -113,7 +116,7 @@ EOF
 echo "**** Install nginx ingress controller"
 kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
 
-echo "**** Wait 20 secs"
+echo "**** Sleep for 20 secs"
 sleep 20
 
 echo "**** Wait for ingress controller to be ready"
@@ -130,8 +133,7 @@ cd ssl-wildcard-certificate-self-ca
 ./create_certificate.sh example.com
 cd ../
 
-echo "**** Create certificate secret"
-kubectl delete secret example 2>/dev/null
+echo "**** Create certificate secret for default namespace"
 kubectl create secret generic example \
   --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/example.com-CERT.pem \
   --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/example.com.key
@@ -166,6 +168,10 @@ kind: Ingress
 metadata:
   name: hello
 spec:
+  tls:
+    - hosts:
+      - hello.example.com
+      secretName: example
   rules:
     - host: hello.example.com
       http:
@@ -176,15 +182,13 @@ spec:
                 name: hello 
                 port:
                   number: 80
-  tls:
-  - hosts:
-    - hello.example.com
-    secretName: example
 EOF
 
-# Waiting
-echo "**** Wait 20 secs"
-sleep 20
+echo "**** Wait for hello pod to be ready"
+kubectl wait \
+  --for=condition=ready pod \
+  --selector=app=hello\
+  --timeout=300s
 
 echo "**** Get Ingress IP from host"
 CONTROL_PLANE_IP=$(docker container inspect ${CLUSTER_NAME}-control-plane --format '{{ .NetworkSettings.Networks.kind.IPAddress }}')
@@ -195,17 +199,22 @@ docker run \
   --net kind --rm curlimages/curl:latest hello.example.com
 
 echo "**** Install dashboard"
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-rc6/aio/deploy/recommended.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.0/aio/deploy/recommended.yaml
 
 echo "**** Check dashboard"
 kubectl get all -n kubernetes-dashboard
+
+echo "**** Create certificate secret for dashboard namespace"
+kubectl -n kubernetes-dashboard create secret generic example \
+  --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/example.com-CERT.pem \
+  --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/example.com.key
 
 echo "**** Create dashboard service account"
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: admin
+  name: admin-user
   namespace: kubernetes-dashboard
 EOF
 
@@ -214,14 +223,14 @@ kubectl apply -f - <<EOF
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: admin
+  name: admin-user
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: cluster-admin
 subjects:
 - kind: ServiceAccount
-  name: admin
+  name: admin-user
   namespace: kubernetes-dashboard
 EOF
 
@@ -239,7 +248,8 @@ metadata:
 spec:
   tls:
     - hosts:
-      - serverdnsname
+      - dashboard.example.com
+      secretName: example
   rules:
     - host: dashboard.example.com
       http:
@@ -252,6 +262,12 @@ spec:
                   number: 443
 EOF
 
+echo "**** Wait for dashboard pod to be ready"
+kubectl wait -n kubernetes-dashboard \
+  --for=condition=ready pod \
+  --selector=k8s-app=kubernetes-dashboard \
+  --timeout=300s
+
 echo "**** Adding hello.example.com and dashboard.example.com to /etc/hosts"
 if grep -q "dashboard.example.com" /etc/hosts; then
     echo "Host entries already exists on /etc/hosts"
@@ -259,9 +275,8 @@ else
    sudo sh -c "echo '127.0.0.1 hello.example.com dashboard.example.com' >> /etc/hosts"
 fi
 
-# echo "**** Get token for kubernetes-dashboard"
-# kubectl -n kubernetes-dashboard describe secret $(kubectl -n kubernetes-dashboard get secret | grep admin | awk '{print $1}')
-
 echo "**** Kind k8s cluster created"
-echo ""
-echo "  kubectl cluster-info --context kind-kind"
+echo "kubectl cluster-info --context kind-kind"
+
+echo "**** Token for kubernetes-dashboard"
+kubectl -n kubernetes-dashboard create token admin-user
