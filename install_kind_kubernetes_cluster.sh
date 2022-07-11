@@ -1,13 +1,17 @@
 #!/bin/bash
 
-
 # kind K8s Cluster
-
 
 # Check if docker is running
 if ! docker info >/dev/null 2>&1; then
   echo "Docker is not running."
   exit 0
+fi
+
+# Check if HTTP and HTTPS ports are in use
+if [ ! -z "$(ss -tulpn | grep LISTEN | grep '0.0.0.0' | grep -E '80|443')" ];
+then
+    echo "Ports HTTP/HTTPS in use. Please check."
 fi
 
 echo "**** Deleting old cluster, if it already exists"
