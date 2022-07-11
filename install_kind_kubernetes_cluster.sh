@@ -1,6 +1,14 @@
 #!/bin/bash
 
+
 # kind K8s Cluster
+
+
+# Check if docker is running
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is not running."
+  exit 0
+fi
 
 echo "**** Deleting old cluster, if it already exists"
 kind delete cluster 2> /dev/null
@@ -16,7 +24,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   echo "**** Proceeding with macOS setup"
 else
-  echo "**** Configuration for this OS is not available" 
+  echo "**** Configuration for this OS is not available"
   exit 0;
 fi
 
@@ -71,7 +79,7 @@ nodes:
         kind: InitConfiguration
         nodeRegistration:
           kubeletExtraArgs:
-            node-labels: "ingress-ready=true"        
+            node-labels: "ingress-ready=true"
     extraPortMappings:
       - containerPort: 80
         hostPort: 80
@@ -137,7 +145,7 @@ echo "**** Create certificate secret for default namespace"
 kubectl create secret generic example \
   --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/example.com-CERT.pem \
   --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/example.com.key
-  
+
 echo "**** Test registry"
 docker pull docker.io/nginxdemos/hello:plain-text
 docker tag docker.io/nginxdemos/hello:plain-text localhost:5001/hello:latest
@@ -179,7 +187,7 @@ spec:
           - pathType: ImplementationSpecific
             backend:
               service:
-                name: hello 
+                name: hello
                 port:
                   number: 80
 EOF
