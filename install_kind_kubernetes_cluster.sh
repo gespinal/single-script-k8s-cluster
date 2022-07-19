@@ -138,7 +138,7 @@ kubectl wait --namespace ingress-nginx \
   --timeout=300s
 
 echo "**** Clonning certificate repo"
-git clone git@github.com:gespinal/ssl-wildcard-certificate-self-ca.git
+git clone https://github.com/gespinal/ssl-wildcard-certificate-self-ca.git
 
 echo "**** Creating certificate for example.com domain"
 cd ssl-wildcard-certificate-self-ca
