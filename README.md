@@ -1,23 +1,25 @@
 ## Single script kind Kubernetes cluster -- Running on Docker
 
-Just run `./install_kind_kubernetes_cluster.sh` and the script will create a single node k8s cluster for your local tests.
+Just run `./install_kind_kubernetes_cluster.sh example.com` and the script will create a single node k8s cluster for your local tests.
 
-Can easily be modified to run as a multi-node cluster.
+### If you have a `domain_name` you can run with Let's Encrypt SSL
 
-*This is a powerful, compact, practical and simple solution to anyone that needs a totally functional k8s cluster on the fly.*
+Run `./install_kind_kubernetes_cluster.sh domain_name ex@email.com` and the script will create a single node k8s cluster for your remote tests.
+
+Note: email address must be valid.
 
 ### Requires:
 
 - Docker service running
 
-### What does this create:
+### When running on local for `example.com` it creates...
 
 - Single node kind k8s cluster running on docker containers
 - Insecure docker registry running on `http://localhost:5001`
 - Dashboard running on `https://dashboard.example.com`
 - Hello world deployment running on `https://hello.example.com`
 
-### Notes:
+### Notes
 
 - If ran multiple times it will delete the old cluster and re-create a new one.
 - Default cluster name is `kind-kind`, but can be customized updating the `${CLUSTER_NAME}` variable on line 10 of the script.
@@ -38,7 +40,7 @@ nodes:
   - role: worker
 ```
 
-### Certificate validation
+### Certificate validation (for local `example.com`)
 
 In order to get rid of the `certificate not trusted` error for your ingress and test URLs, this artifact is using https://github.com/gespinal/ssl-wildcard-certificate-self-ca to generate and install a wildcard certificate for the domain `*.example.com`.
 
@@ -49,3 +51,5 @@ In case of Firefox:
 Go to: about:config
 
 Set: security.enterprise_roots.enabled to true
+
+### *This is a powerful, compact, practical and simple solution to anyone that needs a totally functional k8s cluster on the fly.*
