@@ -1,2 +1,4 @@
 ssl-wildcard-certificate-self-ca
+kubectl-cert-manager.tar.gz
+LICENSE
 .DS_Store

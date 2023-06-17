@@ -180,7 +180,7 @@ kubectl create deployment hello --image=localhost:5001/hello:latest
 if [ "$DOMAIN_NAME" != "example.com" ]; then
 echo "**** Certificate manager - install"
 kubectl create namespace cert-manager
-kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.9.1/cert-manager.yaml
+kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.12.2/cert-manager.yaml
 
 echo "**** Sleep for 10 secs"
 sleep 10
