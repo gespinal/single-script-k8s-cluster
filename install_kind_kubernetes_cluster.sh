@@ -382,11 +382,13 @@ kubectl wait -n kubernetes-dashboard \
   --selector=k8s-app=kubernetes-dashboard \
   --timeout=300s
 
-echo "**** Adding hello.$DOMAIN_NAME and dashboard.$DOMAIN_NAME to /etc/hosts"
-if grep -q "dashboard.$DOMAIN_NAME" /etc/hosts; then
-    echo "Host entries already exists on /etc/hosts"
-else
-   sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
+if [ "$DOMAIN_NAME" == "example.com" ]; then
+  echo "**** Adding hello.$DOMAIN_NAME and dashboard.$DOMAIN_NAME to /etc/hosts"
+  if grep -q "dashboard.$DOMAIN_NAME" /etc/hosts; then
+      echo "Host entries already exists on /etc/hosts"
+  else
+    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
+  fi
 fi
 
 echo "**** Kind k8s cluster created"
