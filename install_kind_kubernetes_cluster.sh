@@ -102,11 +102,11 @@ nodes:
           kubeletExtraArgs:
             node-labels: "ingress-ready=true"
     extraPortMappings:
-      - containerPort: 80
-        hostPort: 80
-        protocol: TCP
       - containerPort: 443
         hostPort: 443
+        protocol: TCP
+      - containerPort: 80
+        hostPort: 80
         protocol: TCP
 containerdConfigPatches:
 - |-
@@ -169,14 +169,6 @@ if [ "$DOMAIN_NAME" == "example.com" ]; then
     --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
 fi
 
-echo "**** Test registry"
-docker pull docker.io/nginxdemos/hello:plain-text
-docker tag docker.io/nginxdemos/hello:plain-text localhost:5001/hello:latest
-docker push localhost:5001/hello:latest
-
-echo "**** Test registry - create deployment"
-kubectl create deployment hello --image=localhost:5001/hello:latest
-
 if [ "$DOMAIN_NAME" != "example.com" ]; then
 echo "**** Install cert-manager"
 kubectl create namespace cert-manager
@@ -219,6 +211,49 @@ spec:
 EOF
 fi
 
+echo "**** Install MetalLB"
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+
+echo "**** Sleep for 10 secs"
+sleep 10
+
+echo "**** Wait fot metallb load balancer to be ready"
+kubectl wait --namespace metallb-system \
+  --for=condition=ready pod \
+  --selector=app=metallb \
+  --timeout=90s
+
+echo "**** Get metal lb cidr range"
+kind_cidr=$(docker inspect --format '{{(index .IPAM.Config 0).Subnet}}' kind)
+metal_lb_first_ip=$(echo $kind_cidr | awk -F. '{print $1 FS $2}').255.200
+metal_lb_last_ip=$(echo $kind_cidr | awk -F. '{print $1 FS $2}').255.250
+
+echo "**** Configure IP address pool for metallb load balancer"
+cat <<EOF | kubectl apply -f -
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: metallbipaddresspool
+  namespace: metallb-system
+spec:
+  addresses:
+  - $metal_lb_first_ip-$metal_lb_last_ip
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: empty
+  namespace: metallb-system
+EOF
+
+echo "**** Test registry"
+docker pull docker.io/nginxdemos/hello:plain-text
+docker tag docker.io/nginxdemos/hello:plain-text localhost:5001/hello:latest
+docker push localhost:5001/hello:latest
+
+echo "**** Test registry - create deployment"
+kubectl create deployment hello --image=localhost:5001/hello:latest
+
 echo "**** Create hello service"
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -226,6 +261,7 @@ kind: Service
 metadata:
   name: hello
 spec:
+  type: LoadBalancer
   selector:
     app: hello
   ports:
@@ -388,6 +424,9 @@ kubectl wait -n kubernetes-dashboard \
   --selector=k8s-app=kubernetes-dashboard \
   --timeout=300s
 
+echo "**** Token for kubernetes-dashboard"
+kubectl -n kubernetes-dashboard create token admin-user
+
 if [ "$DOMAIN_NAME" == "example.com" ]; then
   echo "**** Adding hello.$DOMAIN_NAME and dashboard.$DOMAIN_NAME to /etc/hosts"
   if grep -q "dashboard.$DOMAIN_NAME" /etc/hosts; then
@@ -399,6 +438,3 @@ fi
 
 echo "**** Kind k8s cluster created"
 echo "kubectl cluster-info --context kind-kind"
-
-echo "**** Token for kubernetes-dashboard"
-kubectl -n kubernetes-dashboard create token admin-user
