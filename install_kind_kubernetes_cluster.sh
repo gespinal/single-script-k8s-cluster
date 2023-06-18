@@ -178,7 +178,7 @@ echo "**** Test registry - create deployment"
 kubectl create deployment hello --image=localhost:5001/hello:latest
 
 if [ "$DOMAIN_NAME" != "example.com" ]; then
-echo "**** Certificate manager - install"
+echo "**** Install cert-manager"
 kubectl create namespace cert-manager
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.12.2/cert-manager.yaml
 
@@ -208,6 +208,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
+    # server: https://acme-staging-v02.api.letsencrypt.org/directory
     email: $EMAIL
     privateKeySecretRef:
       name: letsencrypt-cluster-issuer-key
@@ -235,6 +236,7 @@ EOF
 
 if [ "$DOMAIN_NAME" != "example.com" ]; then
 echo "**** Create hello certificate"
+SECRET_NAME=hello.$DOMAIN_NAME-tls
 kubectl apply -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -244,7 +246,7 @@ metadata:
 spec:
   dnsNames:
     - hello.$DOMAIN_NAME
-  secretName: hello-tls-cert
+  secretName: $SECRET_NAME
   issuerRef:
     name: letsencrypt-cluster-issuer
     kind: ClusterIssuer
@@ -259,6 +261,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: hello
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
   tls:
     - hosts:
@@ -330,16 +334,17 @@ EOF
 
 if [ "$DOMAIN_NAME" != "example.com" ]; then
 echo "**** Create dashboard certificate"
+SECRET_NAME=dashboard.$DOMAIN_NAME-tls
 kubectl apply -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dashboard-cert
-  namespace: default
+  namespace: kubernetes-dashboard
 spec:
   dnsNames:
     - dashboard.$DOMAIN_NAME
-  secretName: dashboard-tls-cert
+  secretName: $SECRET_NAME
   issuerRef:
     name: letsencrypt-cluster-issuer
     kind: ClusterIssuer
@@ -359,6 +364,7 @@ metadata:
     kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
   tls:
     - hosts:
