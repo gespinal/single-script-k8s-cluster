@@ -1,30 +1,48 @@
-## Single script kind Kubernetes cluster -- Running on Docker
+# Single script Kubernetes cluster (Runs on Docker)
 
-Just run `./install_kind_kubernetes_cluster.sh example.com` and the script will create a single node k8s cluster for your local tests.
+### K3d
+```
+./install_k3d_kubernetes_cluster.sh
+```
+
+### Kind
+```
+./install_kind_kubernetes_cluster.sh
+```
+
+### Requirements
+
+- Docker service running
+
+## How to
+
+### For local tests
+
+The script will create a single node k8s cluster for your local tests
+
+```
+./install_k3d_kubernetes_cluster.sh example.com
+```
 
 ### If you have a `domain_name` you can run with Let's Encrypt SSL
 
-Run `./install_kind_kubernetes_cluster.sh domain_name ex@email.com` and the script will create a single node k8s cluster for your remote tests.
+The script will create a single node k8s cluster for your tests using Let's Encrypt certificates
+
+```
+# Use second parameter for let's encrypt staging and prd
+./install_k3d_kubernetes_cluster.sh domain_name [stg|[prd]] ex@email.com
+```
 
 Note: email address must be valid.
-
-### Requires:
-
-- Docker service running
 
 ### When running on local for `example.com` it creates...
 
 - Single node kind k8s cluster running on docker containers
-- Insecure docker registry running on `http://localhost:5001`
+- Insecure docker registry running on `http://local.registry:5001`
 - Dashboard running on `https://dashboard.example.com`
 - Hello world deployment running on `https://hello.example.com`
 
-### Notes
-
-- If ran multiple times it will delete the old cluster and re-create a new one.
-- Default cluster name is `kind-kind`, but can be customized updating the `${CLUSTER_NAME}` variable on line 10 of the script.
-
-### Multi-node cluster
+### Kind mlti-node cluster
 
 To change the configuration from single to multi-node k8s cluster, just add workers as you need around line 55-57.
 

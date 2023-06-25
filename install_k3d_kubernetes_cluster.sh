@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# kind K8s Cluster
+# k3d K8s Cluster
 
 # Check if docker is running
 if ! docker info >/dev/null 2>&1; then
@@ -11,7 +11,7 @@ fi
 if [ "$1" != "example.com" ]; then
   LETS_ENCRYPT_SERVER="https://acme-staging-v02.api.letsencrypt.org/directory"
   if [ "$#" -ne 3 ]; then
-  echo "Usage: ./install_kind_kubernetes_cluster.sh domain [email]"
+  echo "Usage: ./install_k3d_kubernetes_cluster.sh domain [email]"
   exit 0
   else
     DOMAIN_NAME=$1
@@ -22,7 +22,7 @@ if [ "$1" != "example.com" ]; then
         LETS_ENCRYPT_SERVER="https://acme-v02.api.letsencrypt.org/directory"
     fi
     if ! [[ $EMAIL =~ $regex ]] ; then
-        echo "Usage: ./install_kind_kubernetes_cluster.sh [domain] [env] [email]"
+        echo "Usage: ./install_k3d_kubernetes_cluster.sh [domain] [env] [email]"
         exit 0
     fi
   fi
@@ -30,8 +30,17 @@ else
   DOMAIN_NAME=$1
 fi
 
+# Install the latest version of k3d
+echo "**** Installing k3d Kubernetes"
+if ! command -v k3d &> /dev/null; then
+  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+fi
+
 echo "**** Deleting old cluster, if it already exists"
-kind delete cluster 2> /dev/null
+k3d cluster delete --all
+
+echo "**** Deleting old registry, if it already exists"
+k3d registry delete --all
 
 # Check if HTTP and HTTPS ports are in use
 if [ ! -z "$(ss -tulpn | grep LISTEN | grep '0.0.0.0' | grep -E '80|443')" ];
@@ -40,8 +49,8 @@ then
 fi
 
 # Setting variables
-echo "**** Exporting CLUSTER_NAME=kind"
-export CLUSTER_NAME=kind
+echo "**** Exporting CLUSTER_NAME=cluster"
+export CLUSTER_NAME=cluster
 
 # Installation
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -61,7 +70,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 # Install kubectl
-if ! command -v kind &> /dev/null; then
+if ! command -v kubectl &> /dev/null; then
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     sudo curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl 2> /dev/null && sudo chmod +x /usr/local/bin/kubectl
   elif [[ "$OSTYPE" == "darwin"* ]]; then
@@ -69,96 +78,48 @@ if ! command -v kind &> /dev/null; then
   fi
 fi
 
-# Install the latest version of kind
-echo "**** Installing kind Kubernetes"
-if ! command -v kind &> /dev/null; then
-  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    sudo curl -L https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 -o /usr/local/bin/kind 2> /dev/null && sudo chmod +x /usr/local/bin/kind
-  elif [[ "$OSTYPE" == "darwin"* ]]; then
-    if ! command -v go &> /dev/null; then
-      brew update && brew install go
-      mkdir $HOME/go
-      echo export GOPATH=$HOME/go | tee -a $HOME/.zshrc > /dev/null
-      echo export PATH=$PATH:$HOME/go/bin | tee -a $HOME/.zshrc > /dev/null
-    fi
-    brew install kind
-  fi
+echo "**** Creating new k3d cluster"
+k3d cluster create $CLUSTER_NAME \
+    --agents 2 \
+    -p "80:80@loadbalancer" \
+    -p "443:443@loadbalancer" \
+    --registry-create local.registry:0.0.0.0:5001 \
+    --kubeconfig-update-default \
+    --kubeconfig-switch-context \
+    --api-port 0.0.0.0:4040
+
+echo "**** Adding local.registry to /etc/hosts"
+if grep -q "local.registry" /etc/hosts; then
+    echo "Host local.registry already exists on /etc/hosts"
+else
+  sudo sh -c "echo '127.0.0.1 local.registry' >> /etc/hosts"
 fi
-
-echo "**** Create docker insecure registry"
-reg_name='kind-registry'
-reg_port='5001'
-if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != 'true' ]; then
-  docker run \
-    -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" \
-    registry:2
-fi
-
-echo "**** Creating new kind cluster"
-kind create cluster --retain -v 1 --name ${CLUSTER_NAME} --config - << EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            node-labels: "ingress-ready=true"
-    extraPortMappings:
-      - containerPort: 443
-        hostPort: 443
-        protocol: TCP
-      - containerPort: 80
-        hostPort: 80
-        protocol: TCP
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
-    endpoint = ["http://${reg_name}:5000"]
-EOF
-
-# Set cluster to never auto-start
-echo "**** Update restart policy"
-docker update --restart=no kind-control-plane
 
 echo "**** Wait for control-plane node to be ready"
 kubectl wait \
   --for=condition=ready node \
-  --selector=kubernetes.io/hostname=kind-control-plane \
+  --selector=kubernetes.io/hostname=k3d-cluster-server-0 \
   --timeout=300s
-
-echo "**** Connect to registry"
-if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
-  docker network connect "kind" "${reg_name}"
-fi
-
-echo "**** Apply registry configmap"
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: local-registry-hosting
-  namespace: kube-public
-data:
-  localRegistryHosting.v1: |
-    host: "localhost:${reg_port}"
-    help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
-EOF
-
-echo "**** Install nginx ingress controller"
-kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
 
 echo "**** Sleep for 5 secs"
 sleep 5
 
-echo "**** Wait for ingress controller to be ready"
-kubectl wait --namespace ingress-nginx \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/component=controller \
+echo "**** Wait for traefik to be installed"
+kubectl wait --namespace kube-system \
+  --for=condition=complete job \
+  --selector=helmcharts.helm.cattle.io/chart=traefik \
   --timeout=300s
 
+echo "**** Sleep for 5 secs"
+sleep 5
+
+echo "**** Wait for traefik to be ready"
+kubectl wait --namespace kube-system \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/instance=traefik-kube-system \
+  --timeout=300s
+
+echo "**** Install local certificate"
 if [ "$DOMAIN_NAME" == "example.com" ]; then
   echo "**** Clonning certificate repo"
   git clone https://github.com/gespinal/ssl-wildcard-certificate-self-ca.git
@@ -172,9 +133,7 @@ if [ "$DOMAIN_NAME" == "example.com" ]; then
   kubectl create secret generic example \
     --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
     --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
-fi
-
-if [ "$DOMAIN_NAME" != "example.com" ]; then
+else
 echo "**** Install cert-manager"
 kubectl create namespace cert-manager
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.12.2/cert-manager.yaml
@@ -194,8 +153,6 @@ kubectl wait --namespace cert-manager \
   --selector=app.kubernetes.io/component=webhook \
   --timeout=300s
 
-kubectl -n cert-manager get po
-
 echo "**** Certificate manager - create issuer"
 cat <<EOF | kubectl apply -f -
 apiVersion: cert-manager.io/v1
@@ -211,7 +168,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: nginx
+          class: traefik
 EOF
 fi
 
@@ -252,11 +209,11 @@ EOF
 
 echo "**** Test registry"
 docker pull docker.io/nginxdemos/hello:plain-text
-docker tag docker.io/nginxdemos/hello:plain-text localhost:5001/hello:latest
-docker push localhost:5001/hello:latest
+docker tag docker.io/nginxdemos/hello:plain-text local.registry:5001/hello:latest
+docker push local.registry:5001/hello:latest
 
 echo "**** Test registry - create deployment"
-kubectl create deployment hello --image=localhost:5001/hello:latest
+kubectl create deployment hello --image=local.registry:5001/hello:latest
 
 echo "**** Create hello service"
 cat <<EOF | kubectl apply -f -
@@ -401,7 +358,7 @@ metadata:
   name: kubernetes-dashboard
   namespace: kubernetes-dashboard
   annotations:
-    kubernetes.io/ingress.class: "nginx"
+    kubernetes.io/ingress.class: "traefik"
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
@@ -440,5 +397,5 @@ if [ "$DOMAIN_NAME" == "example.com" ]; then
   fi
 fi
 
-echo "**** Kind k8s cluster created"
-echo "kubectl cluster-info --context kind-kind"
+echo "**** k3d k8s cluster created"
+echo "kubectl cluster-info"
