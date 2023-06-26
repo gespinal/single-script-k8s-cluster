@@ -39,8 +39,8 @@ fi
 echo "**** Deleting old cluster, if it already exists"
 k3d cluster delete --all
 
-echo "**** Deleting old registry, if it already exists"
-k3d registry delete --all
+# echo "**** Deleting old registry, if it already exists"
+# k3d registry delete --all
 
 # Check if HTTP and HTTPS ports are in use
 if [ ! -z "$(ss -tulpn | grep LISTEN | grep '0.0.0.0' | grep -E '80|443')" ];
