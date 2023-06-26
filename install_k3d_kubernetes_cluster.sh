@@ -185,9 +185,10 @@ kubectl wait --namespace metallb-system \
   --timeout=90s
 
 echo "**** Get metal lb cidr range"
-cluster_cidr=$(docker inspect --format '{{(index .IPAM.Config 0).Subnet}}' kind)
+cluster_cidr=$(docker inspect --format '{{ index .Config.Labels "k3d.cluster.network.iprange"}}' k3d-cluster-serverlb)
 metal_lb_first_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.200
 metal_lb_last_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.250
+
 
 echo "**** Configure IP address pool for metallb load balancer"
 cat <<EOF | kubectl apply -f -
