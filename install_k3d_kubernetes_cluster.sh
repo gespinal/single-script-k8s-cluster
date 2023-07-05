@@ -37,20 +37,25 @@ if ! command -v k3d &> /dev/null; then
 fi
 
 echo "**** Deleting old cluster, if it already exists"
-k3d cluster delete --all
+k3d cluster delete local
 
 # echo "**** Deleting old registry, if it already exists"
 # k3d registry delete --all
 
 # Check if HTTP and HTTPS ports are in use
-if [ ! -z "$(ss -tulpn | grep LISTEN | grep '0.0.0.0' | grep -E '80|443')" ];
-then
-    echo "Ports HTTP/HTTPS in use. Please check."
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  if [ ! -z "$(netstat -anvp tcp | awk 'NR<3 || /LISTEN/' | awk '{print $4}' | grep -E '80|443')" ]; then
+      echo "Ports HTTP/HTTPS in use. Please check."
+  fi
+else
+  if [ ! -z "$(ss -tulpn | grep LISTEN | grep '0.0.0.0' | grep -E '80|443')" ]; then
+      echo "Ports HTTP/HTTPS in use. Please check."
+  fi
 fi
 
 # Setting variables
-echo "**** Exporting CLUSTER_NAME=cluster"
-export CLUSTER_NAME=cluster
+echo "**** Exporting CLUSTER_NAME=local"
+export CLUSTER_NAME=local
 
 # Installation
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -189,7 +194,6 @@ cluster_cidr=$(docker inspect --format '{{ index .Config.Labels "k3d.cluster.net
 metal_lb_first_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.200
 metal_lb_last_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.250
 
-
 echo "**** Configure IP address pool for metallb load balancer"
 cat <<EOF | kubectl apply -f -
 apiVersion: metallb.io/v1beta1
@@ -207,6 +211,17 @@ metadata:
   name: empty
   namespace: metallb-system
 EOF
+
+echo "**** Install Argo CD"
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+echo "**** Wait for Argo CD server to be ready"
+kubectl wait --namespace argocd\
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/name=argocd-server \
+  --timeout=300s
 
 echo "**** Test registry"
 docker pull docker.io/nginxdemos/hello:plain-text
@@ -232,8 +247,8 @@ spec:
       targetPort: 80
 EOF
 
-if [ "$DOMAIN_NAME" != "example.com" ]; then
 echo "**** Create hello certificate"
+if [ "$DOMAIN_NAME" != "example.com" ]; then
 SECRET_NAME=hello.$DOMAIN_NAME-tls
 kubectl apply -f - <<EOF
 apiVersion: cert-manager.io/v1
@@ -292,12 +307,59 @@ docker run \
   --add-host hello.$DOMAIN_NAME:${CONTROL_PLANE_IP} \
   --net kind --rm curlimages/curl:latest hello.$DOMAIN_NAME
 
+echo "**** Create Argo CD certificate"
+if [ "$DOMAIN_NAME" != "example.com" ]; then
+SECRET_NAME=argo.$DOMAIN_NAME-tls
+kubectl apply -f - <<EOF
+apiVersion: argo-manager.io/v1
+kind: Certificate
+metadata:
+  name: argo-cert
+  namespace: argocd
+spec:
+  dnsNames:
+    - argo.$DOMAIN_NAME
+  secretName: $SECRET_NAME
+  issuerRef:
+    name: letsencrypt-cluster-issuer
+    kind: ClusterIssuer
+EOF
+else
+  SECRET_NAME=example
+fi
+
+echo "**** Create Argo CD ingress"
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+spec:
+  tls:
+    - hosts:
+      - argo.$DOMAIN_NAME
+      secretName: $SECRET_NAME
+  rules:
+    - host: argo.$DOMAIN_NAME
+      http:
+        paths:
+          - pathType: ImplementationSpecific
+            backend:
+              service:
+                name: argo
+                port:
+                  number: 80
+EOF
+
 if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Adding hello.$DOMAIN_NAME and dashboard.$DOMAIN_NAME to /etc/hosts"
-  if grep -q "dashboard.$DOMAIN_NAME" /etc/hosts; then
+  echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
+  if grep -q "argo.$DOMAIN_NAME" /etc/hosts; then
       echo "Host entries already exists on /etc/hosts"
   else
-    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
+    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME argo.$DOMAIN_NAME' >> /etc/hosts"
   fi
 fi
 
