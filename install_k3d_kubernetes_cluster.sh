@@ -105,8 +105,8 @@ else
   sudo sh -c "echo '127.0.0.1 local.registry' >> /etc/hosts"
 fi
 
-echo "**** Sleep for 5 secs"
-sleep 5
+echo "**** Sleep for 10 secs"
+sleep 10
 
 echo "**** Wait for control-plane node to be ready"
 kubectl wait \
@@ -427,7 +427,6 @@ metadata:
   name: argo
   namespace: argocd
   annotations:
-    kubernetes.io/ingress.class: traefik
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
   ingressClassName: traefik
