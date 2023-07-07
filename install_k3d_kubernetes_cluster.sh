@@ -39,8 +39,8 @@ fi
 echo "**** Deleting old cluster, if it already exists"
 k3d cluster delete local
 
-# echo "**** Deleting old registry, if it already exists"
-# k3d registry delete --all
+echo "**** Deleting old registry, if it already exists"
+k3d registry delete --all
 
 # Check if HTTP and HTTPS ports are in use
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -84,14 +84,19 @@ if ! command -v kubectl &> /dev/null; then
 fi
 
 echo "**** Creating new k3d cluster"
-k3d cluster create $CLUSTER_NAME \
+  KUBECONFIG=$HOME/.kube/config \
+  k3d cluster create $CLUSTER_NAME \
     --agents 2 \
-    -p "80:80@loadbalancer" \
-    -p "443:443@loadbalancer" \
+    -p "4041:80@loadbalancer" \
+    -p "4043:443@loadbalancer" \
     --registry-create local.registry:0.0.0.0:5001 \
     --kubeconfig-update-default \
     --kubeconfig-switch-context \
-    --api-port 0.0.0.0:4040
+    --api-port 0.0.0.0:4040 \
+    --k3s-node-label "ingress-ready=true@agent:0" \
+    --k3s-node-label "ingress-ready=true@agent:1"
+    # --k3s-arg "--disable=traefik@server:*" \
+    # --k3s-arg "--disable=servicelb@server:*"
 
 echo "**** Adding local.registry to /etc/hosts"
 if grep -q "local.registry" /etc/hosts; then
@@ -100,10 +105,31 @@ else
   sudo sh -c "echo '127.0.0.1 local.registry' >> /etc/hosts"
 fi
 
+echo "**** Sleep for 5 secs"
+sleep 5
+
 echo "**** Wait for control-plane node to be ready"
 kubectl wait \
   --for=condition=ready node \
   --selector=kubernetes.io/hostname=k3d-cluster-server-0 \
+  --timeout=300s
+
+echo "**** Wait for local path provisioner to be ready"
+kubectl wait --namespace kube-system \
+  --for=condition=ready pod \
+  --selector=app=local-path-provisioner \
+  --timeout=300s
+
+echo "**** Wait for coredns to be ready"
+kubectl wait --namespace kube-system \
+  --for=condition=ready pod \
+  --selector=k8s-app=kube-dns \
+  --timeout=300s
+
+echo "**** Wait for metrics-server to be ready"
+kubectl wait --namespace kube-system \
+  --for=condition=ready pod \
+  --selector=k8s-app=metrics-server \
   --timeout=300s
 
 echo "**** Sleep for 5 secs"
@@ -123,6 +149,18 @@ kubectl wait --namespace kube-system \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/instance=traefik-kube-system \
   --timeout=300s
+
+# echo "**** Install nginx ingress controller"
+# kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/cloud/deploy.yaml
+
+# echo "**** Sleep for 5 secs"
+# sleep 5
+
+# echo "**** Wait for ingress controller to be ready"
+# kubectl wait --namespace ingress-nginx \
+#   --for=condition=ready pod \
+#   --selector=app.kubernetes.io/component=controller \
+#   --timeout=300s
 
 echo "**** Install local certificate"
 if [ "$DOMAIN_NAME" == "example.com" ]; then
@@ -177,40 +215,40 @@ spec:
 EOF
 fi
 
-echo "**** Install MetalLB"
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+# echo "**** Install MetalLB"
+# kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.10/config/manifests/metallb-native.yaml
 
-echo "**** Sleep for 5 secs"
-sleep 5
+# echo "**** Sleep for 5 secs"
+# sleep 5
 
-echo "**** Wait fot metallb load balancer to be ready"
-kubectl wait --namespace metallb-system \
-  --for=condition=ready pod \
-  --selector=app=metallb \
-  --timeout=90s
+# echo "**** Wait fot metallb load balancer to be ready"
+# kubectl wait --namespace metallb-system \
+#   --for=condition=ready pod \
+#   --selector=app=metallb \
+#   --timeout=90s
 
-echo "**** Get metal lb cidr range"
-cluster_cidr=$(docker inspect --format '{{ index .Config.Labels "k3d.cluster.network.iprange"}}' k3d-cluster-serverlb)
-metal_lb_first_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.200
-metal_lb_last_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.250
+# echo "**** Get metal lb cidr range"
+# cluster_cidr=$(docker inspect --format '{{ index .Config.Labels "k3d.cluster.network.iprange"}}' k3d-$CLUSTER_NAME-serverlb)
+# metal_lb_first_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.200
+# metal_lb_last_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.250
 
-echo "**** Configure IP address pool for metallb load balancer"
-cat <<EOF | kubectl apply -f -
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: metallbipaddresspool
-  namespace: metallb-system
-spec:
-  addresses:
-  - $metal_lb_first_ip-$metal_lb_last_ip
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: empty
-  namespace: metallb-system
-EOF
+# echo "**** Configure IP address pool for metallb load balancer"
+# cat <<EOF | kubectl apply -f -
+# apiVersion: metallb.io/v1beta1
+# kind: IPAddressPool
+# metadata:
+#   name: metallbipaddresspool
+#   namespace: metallb-system
+# spec:
+#   addresses:
+#   - $metal_lb_first_ip-$metal_lb_last_ip
+# ---
+# apiVersion: metallb.io/v1beta1
+# kind: L2Advertisement
+# metadata:
+#   name: empty
+#   namespace: metallb-system
+# EOF
 
 echo "**** Install Argo CD"
 kubectl create namespace argocd
@@ -238,7 +276,7 @@ kind: Service
 metadata:
   name: hello
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: hello
   ports:
@@ -269,14 +307,17 @@ else
 fi
 
 echo "**** Create hello ingress"
+if [ "$DOMAIN_NAME" != "example.com" ]; then
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: hello
   annotations:
+    kubernetes.io/ingress.class: traefik
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
+  ingressClassName: traefik
   tls:
     - hosts:
       - hello.$DOMAIN_NAME
@@ -285,13 +326,40 @@ spec:
     - host: hello.$DOMAIN_NAME
       http:
         paths:
-          - pathType: ImplementationSpecific
+          - pathType: prefix
+            path: /
             backend:
               service:
                 name: hello
                 port:
                   number: 80
 EOF
+else
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+  annotations:
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+      - hello.$DOMAIN_NAME
+    secretName: $SECRET_NAME
+  rules:
+    - host: hello.$DOMAIN_NAME
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: hello
+              port:
+                number: 80
+EOF
+fi
 
 echo "**** Wait for hello pod to be ready"
 kubectl wait \
@@ -301,11 +369,6 @@ kubectl wait \
 
 echo "**** Get Ingress IP from host"
 CONTROL_PLANE_IP=$(docker container inspect ${CLUSTER_NAME}-control-plane --format '{{ .NetworkSettings.Networks.kind.IPAddress }}')
-
-echo "**** Test hello service"
-docker run \
-  --add-host hello.$DOMAIN_NAME:${CONTROL_PLANE_IP} \
-  --net kind --rm curlimages/curl:latest hello.$DOMAIN_NAME
 
 echo "**** Create Argo CD certificate"
 if [ "$DOMAIN_NAME" != "example.com" ]; then
@@ -329,6 +392,7 @@ else
 fi
 
 echo "**** Create Argo CD ingress"
+if [ "$DOMAIN_NAME" != "example.com" ]; then
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -338,6 +402,35 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+      - hello.$DOMAIN_NAME
+      secretName: $SECRET_NAME
+    - host: argo.$DOMAIN_NAME
+      http:
+        paths:
+          - pathType: prefix
+            path: /
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+EOF
+else
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo
+  namespace: argocd
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+spec:
+  ingressClassName: traefik
   tls:
     - hosts:
       - argo.$DOMAIN_NAME
@@ -346,13 +439,15 @@ spec:
     - host: argo.$DOMAIN_NAME
       http:
         paths:
-          - pathType: ImplementationSpecific
+          - pathType: Prefix
+            path: /
             backend:
               service:
-                name: argo
+                name: argocd-server
                 port:
                   number: 80
 EOF
+fi
 
 if [ "$DOMAIN_NAME" == "example.com" ]; then
   echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
