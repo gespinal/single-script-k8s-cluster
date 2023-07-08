@@ -498,6 +498,13 @@ spec:
                 name: https
 EOF
 
+echo "**** Update Argo CD password"
+kubectl -n argocd patch secret argocd-secret \
+  -p '{"stringData": {
+    "admin.password": "$2a$10$rRyBsGSHK6.uc8fntPwVIuLVHgsAhAX7TcdrqW/RADU0uh7CaChLa",
+    "admin.passwordMtime": "'$(date +%FT%T%Z)'"
+  }}'
+
 if [ "$DOMAIN_NAME" == "example.com" ]; then
   echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
   if grep -q "argo.$DOMAIN_NAME" /etc/hosts; then
