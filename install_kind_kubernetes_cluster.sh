@@ -428,17 +428,87 @@ kubectl wait -n kubernetes-dashboard \
   --selector=k8s-app=kubernetes-dashboard \
   --timeout=300s
 
-echo "**** Token for kubernetes-dashboard"
-kubectl -n kubernetes-dashboard create token admin-user
+
+
+echo "**** Install Argo CD"
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+echo "**** Wait for Argo CD server to be ready"
+kubectl wait --namespace argocd\
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/name=argocd-server \
+  --timeout=300s
 
 if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Adding hello.$DOMAIN_NAME and dashboard.$DOMAIN_NAME to /etc/hosts"
-  if grep -q "dashboard.$DOMAIN_NAME" /etc/hosts; then
+  echo "**** Create certificate secret for dashboard namespace"
+  kubectl -n argocd create secret generic example \
+    --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
+    --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
+fi
+
+echo "**** Create Argo CD certificate"
+if [ "$DOMAIN_NAME" != "example.com" ]; then
+SECRET_NAME=argo.$DOMAIN_NAME-tls
+kubectl apply -f - <<EOF
+apiVersion: argo-manager.io/v1
+kind: Certificate
+metadata:
+  name: argo-cert
+  namespace: argocd
+spec:
+  dnsNames:
+    - argo.$DOMAIN_NAME
+  secretName: $SECRET_NAME
+  issuerRef:
+    name: letsencrypt-cluster-issuer
+    kind: ClusterIssuer
+EOF
+else
+  SECRET_NAME=example
+fi
+
+echo "**** Create Argo CD ingress"
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+spec:
+  tls:
+    - hosts:
+      - argo.$DOMAIN_NAME
+      secretName: $SECRET_NAME
+  rules:
+    - host: argo.$DOMAIN_NAME
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: argocd-server
+              port:
+                name: https
+EOF
+
+if [ "$DOMAIN_NAME" == "example.com" ]; then
+  echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
+  if grep -q "argo.$DOMAIN_NAME" /etc/hosts; then
       echo "Host entries already exists on /etc/hosts"
   else
-    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
+    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME argo.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
   fi
 fi
+
+echo "**** Token for kubernetes-dashboard"
+kubectl -n kubernetes-dashboard create token admin-user
 
 echo "**** Kind k8s cluster created"
 echo "kubectl cluster-info --context kind-kind"

@@ -94,8 +94,8 @@ echo "**** Creating new k3d cluster"
     --kubeconfig-switch-context \
     --api-port 0.0.0.0:4040 \
     --k3s-node-label "ingress-ready=true@agent:0" \
-    --k3s-node-label "ingress-ready=true@agent:1"
-    # --k3s-arg "--disable=traefik@server:*" \
+    --k3s-node-label "ingress-ready=true@agent:1" \
+    --k3s-arg "--disable=traefik@server:*"
     # --k3s-arg "--disable=servicelb@server:*"
 
 echo "**** Adding local.registry to /etc/hosts"
@@ -135,32 +135,55 @@ kubectl wait --namespace kube-system \
 echo "**** Sleep for 5 secs"
 sleep 5
 
-echo "**** Wait for traefik to be installed"
-kubectl wait --namespace kube-system \
-  --for=condition=complete job \
-  --selector=helmcharts.helm.cattle.io/chart=traefik \
-  --timeout=300s
-
-echo "**** Sleep for 5 secs"
-sleep 5
-
-echo "**** Wait for traefik to be ready"
-kubectl wait --namespace kube-system \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/instance=traefik-kube-system \
-  --timeout=300s
-
-# echo "**** Install nginx ingress controller"
-# kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/cloud/deploy.yaml
+# echo "**** Wait for traefik to be installed"
+# kubectl wait --namespace kube-system \
+#   --for=condition=complete job \
+#   --selector=helmcharts.helm.cattle.io/chart=traefik \
+#   --timeout=300s
 
 # echo "**** Sleep for 5 secs"
 # sleep 5
 
-# echo "**** Wait for ingress controller to be ready"
-# kubectl wait --namespace ingress-nginx \
+# echo "**** Wait for traefik to be ready"
+# kubectl wait --namespace kube-system \
 #   --for=condition=ready pod \
-#   --selector=app.kubernetes.io/component=controller \
+#   --selector=app.kubernetes.io/instance=traefik-kube-system \
 #   --timeout=300s
+
+echo "**** Install nginx ingress controller"
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/baremetal/deploy.yaml
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller-loadbalancer
+  namespace: ingress-nginx
+spec:
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: 443
+  type: LoadBalancer
+EOF
+
+echo "**** Sleep for 5 secs"
+sleep 5
+
+echo "**** Wait for ingress controller to be ready"
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=300s
 
 echo "**** Install local certificate"
 if [ "$DOMAIN_NAME" == "example.com" ]; then
@@ -211,7 +234,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: traefik
+          class: nginx
 EOF
 fi
 
@@ -229,8 +252,40 @@ fi
 
 # echo "**** Get metal lb cidr range"
 # cluster_cidr=$(docker inspect --format '{{ index .Config.Labels "k3d.cluster.network.iprange"}}' k3d-$CLUSTER_NAME-serverlb)
+# docker network inspect k3d-local-k8s | jq '.[0].IPAM.Config[0].Subnet' | tr -d '"'
 # metal_lb_first_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.200
 # metal_lb_last_ip=$(echo $cluster_cidr | awk -F. '{print $1 FS $2}').255.250
+
+# cidr_block=$(docker network inspect k3d-local-k8s | jq '.[0].IPAM.Config[0].Subnet' | tr -d '"')
+# cidr_base_addr=${cidr_block%???}
+# ingress_first_addr=$(echo $cidr_base_addr | awk -F'.' '{print $1,$2,255,0}' OFS='.')
+# ingress_last_addr=$(echo $cidr_base_addr | awk -F'.' '{print $1,$2,255,255}' OFS='.')
+# ingress_range=$ingress_first_addr-$ingress_last_addr
+
+# kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/namespace.yaml
+# kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/metallb.yaml
+
+# echo "**** Wait fot metallb load balancer to be ready"
+# kubectl wait --namespace metallb-system \
+#   --for=condition=ready pod \
+#   --selector=app=metallb \
+#   --timeout=90s
+
+# echo "**** Configure IP address pool for metallb load balancer"
+# cat <<EOF | kubectl apply -f -
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   namespace: metallb-system
+#   name: config
+# data:
+#   config: |
+#     address-pools:
+#     - name: default
+#       protocol: layer2
+#       addresses:
+#       - $ingress_range
+# EOF
 
 # echo "**** Configure IP address pool for metallb load balancer"
 # cat <<EOF | kubectl apply -f -
@@ -249,17 +304,6 @@ fi
 #   name: empty
 #   namespace: metallb-system
 # EOF
-
-echo "**** Install Argo CD"
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-
-echo "**** Wait for Argo CD server to be ready"
-kubectl wait --namespace argocd\
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/name=argocd-server \
-  --timeout=300s
 
 echo "**** Test registry"
 docker pull docker.io/nginxdemos/hello:plain-text
@@ -314,10 +358,10 @@ kind: Ingress
 metadata:
   name: hello
   annotations:
-    kubernetes.io/ingress.class: traefik
+    kubernetes.io/ingress.class: nginx
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
-  ingressClassName: traefik
+  ingressClassName: nginx
   tls:
     - hosts:
       - hello.$DOMAIN_NAME
@@ -342,7 +386,7 @@ metadata:
   name: hello
   annotations:
 spec:
-  ingressClassName: traefik
+  ingressClassName: nginx
   tls:
   - hosts:
       - hello.$DOMAIN_NAME
@@ -368,7 +412,18 @@ kubectl wait \
   --timeout=300s
 
 echo "**** Get Ingress IP from host"
-CONTROL_PLANE_IP=$(docker container inspect ${CLUSTER_NAME}-control-plane --format '{{ .NetworkSettings.Networks.kind.IPAddress }}')
+CONTROL_PLANE_IP=$(docker container inspect ${CLUSTER_NAME}-control-plane --format '{{ .NetworkSettings.Networks.kind.dddress }}')
+
+echo "**** Install Argo CD"
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+echo "**** Wait for Argo CD server to be ready"
+kubectl wait --namespace argocd\
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/name=argocd-server \
+  --timeout=300s
 
 echo "**** Create Argo CD certificate"
 if [ "$DOMAIN_NAME" != "example.com" ]; then
@@ -403,7 +458,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
 spec:
-  ingressClassName: traefik
+  ingressClassName: nginx
   tls:
     - hosts:
       - hello.$DOMAIN_NAME
@@ -429,7 +484,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
 spec:
-  ingressClassName: traefik
+  ingressClassName: nginx
   tls:
     - hosts:
       - argo.$DOMAIN_NAME
