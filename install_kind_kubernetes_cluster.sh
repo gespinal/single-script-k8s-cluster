@@ -69,6 +69,26 @@ if ! command -v kind &> /dev/null; then
   fi
 fi
 
+# Install arrgocd cli
+if ! command -v kind &> /dev/null; then
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+    sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+    rm argocd-linux-amd64
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    brew install argocd
+  fi
+fi
+
+# Install helm
+if ! command -v kind &> /dev/null; then
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash if you
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    brew install helm
+  fi
+fi
+
 # Install the latest version of kind
 echo "**** Installing kind Kubernetes"
 if ! command -v kind &> /dev/null; then
@@ -428,8 +448,6 @@ kubectl wait -n kubernetes-dashboard \
   --selector=k8s-app=kubernetes-dashboard \
   --timeout=300s
 
-
-
 echo "**** Install Argo CD"
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
@@ -504,6 +522,9 @@ kubectl -n argocd patch secret argocd-secret \
     "admin.password": "$2a$10$rRyBsGSHK6.uc8fntPwVIuLVHgsAhAX7TcdrqW/RADU0uh7CaChLa",
     "admin.passwordMtime": "'$(date +%FT%T%Z)'"
   }}'
+
+echo "**** Login to Argo CD"
+argocd login --username admin --password password argo.$DOMAIN_NAME
 
 if [ "$DOMAIN_NAME" == "example.com" ]; then
   echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
