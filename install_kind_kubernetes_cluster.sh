@@ -245,7 +245,7 @@ echo "**** Wait fot metallb load balancer to be ready"
 kubectl wait --namespace metallb-system \
   --for=condition=ready pod \
   --selector=app=metallb \
-  --timeout=90s
+  --timeout=300s
 
 echo "**** Get metal lb cidr range"
 cluster_cidr=$(docker inspect --format '{{(index .IPAM.Config 0).Subnet}}' kind)
