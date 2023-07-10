@@ -69,8 +69,8 @@ if ! command -v kind &> /dev/null; then
   fi
 fi
 
-# Install arrgocd cli
-if ! command -v kind &> /dev/null; then
+# Install Argo CD CLI
+if ! command -v argocd &> /dev/null; then
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
     sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
@@ -470,7 +470,7 @@ echo "**** Create Argo CD certificate"
 if [ "$DOMAIN_NAME" != "example.com" ]; then
 SECRET_NAME=argo.$DOMAIN_NAME-tls
 kubectl apply -f - <<EOF
-apiVersion: argo-manager.io/v1
+apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: argo-cert
@@ -493,6 +493,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: argo
+  namespace: argocd
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
