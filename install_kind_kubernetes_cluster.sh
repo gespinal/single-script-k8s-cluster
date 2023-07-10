@@ -452,6 +452,8 @@ echo "**** Install Argo CD"
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+kubectl patch configmap argocd-cm -n argocd --type merge -p '{"data": {"timeout.reconciliation": "5s"}}'
+kubectl rollout restart deploy argocd-repo-server-n argocd
 
 echo "**** Wait for Argo CD server to be ready"
 kubectl wait --namespace argocd\
