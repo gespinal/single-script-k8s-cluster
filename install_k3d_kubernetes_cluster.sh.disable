@@ -132,21 +132,6 @@ kubectl wait --namespace kube-system \
   --selector=k8s-app=metrics-server \
   --timeout=300s
 
-echo "**** Install local certificate"
-if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Clonning certificate repo"
-  git clone https://github.com/gespinal/ssl-wildcard-certificate-self-ca.git
-
-  echo "**** Creating certificate for $DOMAIN_NAME domain"
-  cd ssl-wildcard-certificate-self-ca
-  ./create_certificate.sh $DOMAIN_NAME
-  cd ../
-
-  echo "**** Create certificate secret for default namespace"
-  kubectl create secret generic example \
-    --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
-    --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
-else
 echo "**** Install cert-manager"
 kubectl create namespace cert-manager
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.12.2/cert-manager.yaml
@@ -166,6 +151,21 @@ kubectl wait --namespace cert-manager \
   --selector=app.kubernetes.io/component=webhook \
   --timeout=300s
 
+echo "**** Install local certificate"
+if [ "$DOMAIN_NAME" == "example.com" ]; then
+  echo "**** Clonning certificate repo"
+  git clone https://github.com/gespinal/ssl-wildcard-certificate-self-ca.git
+
+  echo "**** Creating certificate for $DOMAIN_NAME domain"
+  cd ssl-wildcard-certificate-self-ca
+  ./create_certificate.sh $DOMAIN_NAME
+  cd ../
+
+  echo "**** Create certificate secret for default namespace"
+  kubectl create secret generic example \
+    --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
+    --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
+else
 echo "**** Certificate manager - create issuer"
 cat <<EOF | kubectl apply -f -
 apiVersion: cert-manager.io/v1
