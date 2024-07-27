@@ -354,192 +354,192 @@ docker run \
   --add-host hello.$DOMAIN_NAME:${CONTROL_PLANE_IP} \
   --net kind --rm curlimages/curl:latest hello.$DOMAIN_NAME
 
-echo "**** Install dashboard"
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.0/aio/deploy/recommended.yaml
+# echo "**** Install dashboard"
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.0/aio/deploy/recommended.yaml
 
-echo "**** Check dashboard"
-kubectl get all -n kubernetes-dashboard
+# echo "**** Check dashboard"
+# kubectl get all -n kubernetes-dashboard
 
-if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Create certificate secret for dashboard namespace"
-  kubectl -n kubernetes-dashboard create secret generic example \
-    --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
-    --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
-fi
+# if [ "$DOMAIN_NAME" == "example.com" ]; then
+#   echo "**** Create certificate secret for dashboard namespace"
+#   kubectl -n kubernetes-dashboard create secret generic example \
+#     --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
+#     --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
+# fi
 
-echo "**** Create dashboard service account"
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: admin-user
-  namespace: kubernetes-dashboard
-EOF
+# echo "**** Create dashboard service account"
+# kubectl apply -f - <<EOF
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   name: admin-user
+#   namespace: kubernetes-dashboard
+# EOF
 
-echo "**** Create dashboard rolebinding"
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admin-user
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: admin-user
-  namespace: kubernetes-dashboard
-EOF
+# echo "**** Create dashboard rolebinding"
+# kubectl apply -f - <<EOF
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRoleBinding
+# metadata:
+#   name: admin-user
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: cluster-admin
+# subjects:
+# - kind: ServiceAccount
+#   name: admin-user
+#   namespace: kubernetes-dashboard
+# EOF
 
-if [ "$DOMAIN_NAME" != "example.com" ]; then
-echo "**** Create dashboard certificate"
-SECRET_NAME=dashboard.$DOMAIN_NAME-tls
-kubectl apply -f - <<EOF
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: dashboard-cert
-  namespace: kubernetes-dashboard
-spec:
-  dnsNames:
-    - dashboard.$DOMAIN_NAME
-  secretName: $SECRET_NAME
-  issuerRef:
-    name: letsencrypt-cluster-issuer
-    kind: ClusterIssuer
-EOF
-else
-  SECRET_NAME=example
-fi
+# if [ "$DOMAIN_NAME" != "example.com" ]; then
+# echo "**** Create dashboard certificate"
+# SECRET_NAME=dashboard.$DOMAIN_NAME-tls
+# kubectl apply -f - <<EOF
+# apiVersion: cert-manager.io/v1
+# kind: Certificate
+# metadata:
+#   name: dashboard-cert
+#   namespace: kubernetes-dashboard
+# spec:
+#   dnsNames:
+#     - dashboard.$DOMAIN_NAME
+#   secretName: $SECRET_NAME
+#   issuerRef:
+#     name: letsencrypt-cluster-issuer
+#     kind: ClusterIssuer
+# EOF
+# else
+#   SECRET_NAME=example
+# fi
 
-echo "**** Create dashboard ingress"
-kubectl apply -f - <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kubernetes-dashboard
-  namespace: kubernetes-dashboard
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
-spec:
-  tls:
-    - hosts:
-      - dashboard.$DOMAIN_NAME
-      secretName: $SECRET_NAME
-  rules:
-    - host: dashboard.$DOMAIN_NAME
-      http:
-        paths:
-          - pathType: ImplementationSpecific
-            backend:
-              service:
-                name: kubernetes-dashboard
-                port:
-                  number: 443
-EOF
+# echo "**** Create dashboard ingress"
+# kubectl apply -f - <<EOF
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: kubernetes-dashboard
+#   namespace: kubernetes-dashboard
+#   annotations:
+#     kubernetes.io/ingress.class: "nginx"
+#     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+#     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+#     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+# spec:
+#   tls:
+#     - hosts:
+#       - dashboard.$DOMAIN_NAME
+#       secretName: $SECRET_NAME
+#   rules:
+#     - host: dashboard.$DOMAIN_NAME
+#       http:
+#         paths:
+#           - pathType: ImplementationSpecific
+#             backend:
+#               service:
+#                 name: kubernetes-dashboard
+#                 port:
+#                   number: 443
+# EOF
 
-echo "**** Wait for dashboard pod to be ready"
-kubectl wait -n kubernetes-dashboard \
-  --for=condition=ready pod \
-  --selector=k8s-app=kubernetes-dashboard \
-  --timeout=300s
+# echo "**** Wait for dashboard pod to be ready"
+# kubectl wait -n kubernetes-dashboard \
+#   --for=condition=ready pod \
+#   --selector=k8s-app=kubernetes-dashboard \
+#   --timeout=300s
 
-echo "**** Install Argo CD"
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-kubectl patch configmap argocd-cm -n argocd --type merge -p '{"data": {"timeout.reconciliation": "5s"}}'
-kubectl rollout restart deploy argocd-repo-server-n argocd
+# echo "**** Install Argo CD"
+# kubectl create namespace argocd
+# kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+# kubectl patch configmap argocd-cm -n argocd --type merge -p '{"data": {"timeout.reconciliation": "5s"}}'
+# kubectl rollout restart deploy argocd-repo-server-n argocd
 
-echo "**** Wait for Argo CD server to be ready"
-kubectl wait --namespace argocd\
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/name=argocd-server \
-  --timeout=300s
+# echo "**** Wait for Argo CD server to be ready"
+# kubectl wait --namespace argocd\
+#   --for=condition=ready pod \
+#   --selector=app.kubernetes.io/name=argocd-server \
+#   --timeout=300s
 
-if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Create certificate secret for dashboard namespace"
-  kubectl -n argocd create secret generic example \
-    --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
-    --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
-fi
+# if [ "$DOMAIN_NAME" == "example.com" ]; then
+#   echo "**** Create certificate secret for dashboard namespace"
+#   kubectl -n argocd create secret generic example \
+#     --from-file=tls.crt=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME-CERT.pem \
+#     --from-file=tls.key=./ssl-wildcard-certificate-self-ca/certs/$DOMAIN_NAME.key
+# fi
 
-echo "**** Create Argo CD certificate"
-if [ "$DOMAIN_NAME" != "example.com" ]; then
-SECRET_NAME=argo.$DOMAIN_NAME-tls
-kubectl apply -f - <<EOF
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: argo-cert
-  namespace: argocd
-spec:
-  dnsNames:
-    - argo.$DOMAIN_NAME
-  secretName: $SECRET_NAME
-  issuerRef:
-    name: letsencrypt-cluster-issuer
-    kind: ClusterIssuer
-EOF
-else
-  SECRET_NAME=example
-fi
+# echo "**** Create Argo CD certificate"
+# if [ "$DOMAIN_NAME" != "example.com" ]; then
+# SECRET_NAME=argo.$DOMAIN_NAME-tls
+# kubectl apply -f - <<EOF
+# apiVersion: cert-manager.io/v1
+# kind: Certificate
+# metadata:
+#   name: argo-cert
+#   namespace: argocd
+# spec:
+#   dnsNames:
+#     - argo.$DOMAIN_NAME
+#   secretName: $SECRET_NAME
+#   issuerRef:
+#     name: letsencrypt-cluster-issuer
+#     kind: ClusterIssuer
+# EOF
+# else
+#   SECRET_NAME=example
+# fi
 
-echo "**** Create Argo CD ingress"
-cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: argo
-  namespace: argocd
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-spec:
-  tls:
-    - hosts:
-      - argo.$DOMAIN_NAME
-      secretName: $SECRET_NAME
-  rules:
-    - host: argo.$DOMAIN_NAME
-      http:
-        paths:
-        - path: /
-          pathType: Prefix
-          backend:
-            service:
-              name: argocd-server
-              port:
-                name: https
-EOF
+# echo "**** Create Argo CD ingress"
+# cat <<EOF | kubectl apply -f -
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: argo
+#   namespace: argocd
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+#     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+#     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+#     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+# spec:
+#   tls:
+#     - hosts:
+#       - argo.$DOMAIN_NAME
+#       secretName: $SECRET_NAME
+#   rules:
+#     - host: argo.$DOMAIN_NAME
+#       http:
+#         paths:
+#         - path: /
+#           pathType: Prefix
+#           backend:
+#             service:
+#               name: argocd-server
+#               port:
+#                 name: https
+# EOF
 
-echo "**** Update Argo CD password"
-kubectl -n argocd patch secret argocd-secret \
-  -p '{"stringData": {
-    "admin.password": "$2a$10$rRyBsGSHK6.uc8fntPwVIuLVHgsAhAX7TcdrqW/RADU0uh7CaChLa",
-    "admin.passwordMtime": "'$(date +%FT%T%Z)'"
-  }}'
+# echo "**** Update Argo CD password"
+# kubectl -n argocd patch secret argocd-secret \
+#   -p '{"stringData": {
+#     "admin.password": "$2a$10$rRyBsGSHK6.uc8fntPwVIuLVHgsAhAX7TcdrqW/RADU0uh7CaChLa",
+#     "admin.passwordMtime": "'$(date +%FT%T%Z)'"
+#   }}'
 
-echo "**** Login to Argo CD"
-argocd login --username admin --password password argo.$DOMAIN_NAME
+# echo "**** Login to Argo CD"
+# argocd login --username admin --password password argo.$DOMAIN_NAME
 
-if [ "$DOMAIN_NAME" == "example.com" ]; then
-  echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
-  if grep -q "argo.$DOMAIN_NAME" /etc/hosts; then
-      echo "Host entries already exists on /etc/hosts"
-  else
-    sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME argo.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
-  fi
-fi
+# if [ "$DOMAIN_NAME" == "example.com" ]; then
+#   echo "**** Adding hello.$DOMAIN_NAME and argo.$DOMAIN_NAME to /etc/hosts"
+#   if grep -q "argo.$DOMAIN_NAME" /etc/hosts; then
+#       echo "Host entries already exists on /etc/hosts"
+#   else
+#     sudo sh -c "echo '127.0.0.1 hello.$DOMAIN_NAME argo.$DOMAIN_NAME dashboard.$DOMAIN_NAME' >> /etc/hosts"
+#   fi
+# fi
 
-echo "**** Token for kubernetes-dashboard"
-kubectl -n kubernetes-dashboard create token admin-user
+# echo "**** Token for kubernetes-dashboard"
+# kubectl -n kubernetes-dashboard create token admin-user
 
 echo "**** Kind k8s cluster created"
 echo "kubectl cluster-info --context kind-kind"
