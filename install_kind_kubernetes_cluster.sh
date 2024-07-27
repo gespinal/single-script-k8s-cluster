@@ -133,6 +133,9 @@ nodes:
       - containerPort: 80
         hostPort: 80
         protocol: TCP
+  - role: worker
+  - role: worker
+  - role: worker
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
