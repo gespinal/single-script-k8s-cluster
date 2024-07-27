@@ -148,6 +148,7 @@ docker update --restart=no kind-control-plane 2> /dev/null
 docker update --restart=no kind-worker 2> /dev/null
 docker update --restart=no kind-worker2 2> /dev/null
 docker update --restart=no kind-worker3 2> /dev/null
+docker update --restart=no kind-registry 2> /dev/null
 
 echo "**** Wait for control-plane node to be ready"
 kubectl wait \
